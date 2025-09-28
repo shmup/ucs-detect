@@ -1,0 +1,39 @@
+# compose.yml for ucs-detect - unicode terminal detection tool
+services:
+  ucs-detect:
+    build: .
+    container_name: ucs-detect
+    # Enable TTY and interactive mode for terminal testing
+    tty: true
+    stdin_open: true
+    # Mount current directory for development
+    volumes:
+      - .:/app
+    # Override default command for interactive use
+    command: /bin/bash
+
+  # Service for running quick tests
+  test:
+    build: .
+    container_name: ucs-detect-test
+    tty: true
+    stdin_open: true
+    volumes:
+      - .:/app
+    command: ucs-detect --quick
+
+  # Service for generating documentation
+  docs:
+    build: .
+    container_name: ucs-detect-docs
+    volumes:
+      - .:/app
+    command: ./make_docs.sh
+
+  # Service for generating Unicode tables
+  tables:
+    build: .
+    container_name: ucs-detect-tables
+    volumes:
+      - .:/app
+    command: /bin/bash -c "python make_table_zwj.py && python make_vs16_table.py && python make_wide_table.py"
