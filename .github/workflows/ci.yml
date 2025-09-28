@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+
+    - name: Test basic functionality
+      run: |
+        ucs-detect --help
+        ucs-detect --version || true  # May not have --version flag
+        ucs-detect --quick
+
+    - name: Test YAML output
+      run: |
+        ucs-detect --quick --save-yaml=test-output.yaml --software=ci-test --version=github-actions
+        test -f test-output.yaml
+        head -10 test-output.yaml
+
+    - name: Test shell integration
+      run: |
+        eval "$(ucs-detect --shell --quick)"
+        echo "Unicode version detected: $UNICODE_VERSION"
+
+  docker-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build minimal Docker image
+      run: |
+        docker build -f docker-test/Dockerfile.minimal -t ucs-detect-minimal .
+
+    - name: Test tmux (no display required)
+      run: |
+        mkdir -p docker-test/results
+        docker run --rm -v "$(pwd)/docker-test/results:/results" \
+          -e TERMINAL=tmux -e OUTPUT_DIR=/results ucs-detect-minimal
+        test -f docker-test/results/tmux_results.yaml
+        head -10 docker-test/results/tmux_results.yaml
+
+    - name: Test screen (no display required)
+      run: |
+        docker run --rm -v "$(pwd)/docker-test/results:/results" \
+          -e TERMINAL=screen -e OUTPUT_DIR=/results ucs-detect-minimal
+        test -f docker-test/results/screen_results.yaml
+        head -10 docker-test/results/screen_results.yaml
+
+    - name: Aggregate results
+      run: |
+        cd docker-test && python aggregate_results.py
+        test -f docker-test/aggregate_report.json
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: ci-terminal-results
+        path: docker-test/results/
+        retention-days: 7

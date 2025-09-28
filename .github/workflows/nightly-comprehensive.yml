@@ -1,0 +1,266 @@
+name: Nightly Comprehensive Terminal Testing
+
+on:
+  schedule:
+    # Run at 2 AM UTC daily
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      include_experimental:
+        description: 'Include experimental terminals (kitty, alacritty, wezterm)'
+        required: false
+        default: true
+        type: boolean
+      full_test_mode:
+        description: 'Run full tests instead of --quick mode'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build-images:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Generate cache key
+      id: cache-key
+      run: |
+        key="docker-images-$(sha256sum docker-test/Dockerfile.enhanced docker-test/Dockerfile.minimal | sha256sum | cut -d' ' -f1)"
+        echo "key=$key" >> $GITHUB_OUTPUT
+
+    - name: Cache Docker images
+      uses: actions/cache@v3
+      id: docker-cache
+      with:
+        path: /tmp/docker-images
+        key: ${{ steps.cache-key.outputs.key }}
+
+    - name: Build enhanced Docker image
+      if: steps.docker-cache.outputs.cache-hit != 'true'
+      run: |
+        docker build -f docker-test/Dockerfile.enhanced -t ucs-detect-enhanced .
+        docker build -f docker-test/Dockerfile.minimal -t ucs-detect-minimal .
+        mkdir -p /tmp/docker-images
+        docker save ucs-detect-enhanced:latest | gzip > /tmp/docker-images/enhanced.tar.gz
+        docker save ucs-detect-minimal:latest | gzip > /tmp/docker-images/minimal.tar.gz
+      timeout-minutes: 30
+
+    - name: Load cached images
+      if: steps.docker-cache.outputs.cache-hit == 'true'
+      run: |
+        docker load < /tmp/docker-images/enhanced.tar.gz
+        docker load < /tmp/docker-images/minimal.tar.gz
+
+  core-terminals-comprehensive:
+    runs-on: ubuntu-latest
+    needs: build-images
+    strategy:
+      matrix:
+        terminal: [tmux, screen]
+        test_mode: [quick, standard]
+        exclude:
+          # Run standard mode only for nightly, not both
+          - test_mode: standard
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Cache Docker images
+      uses: actions/cache@v3
+      with:
+        path: /tmp/docker-images
+        key: ${{ needs.build-images.outputs.cache-key }}
+
+    - name: Load images
+      run: |
+        docker load < /tmp/docker-images/minimal.tar.gz
+
+    - name: Test ${{ matrix.terminal }} (${{ matrix.test_mode }} mode)
+      run: |
+        mkdir -p docker-test/results
+        test_flags="--quick"
+        if [ "${{ matrix.test_mode }}" = "standard" ] || [ "${{ github.event.inputs.full_test_mode }}" = "true" ]; then
+          test_flags="--limit-codepoints=10000"
+        fi
+
+        docker run --rm -v "$(pwd)/docker-test/results:/results" \
+          -e TERMINAL=${{ matrix.terminal }} -e OUTPUT_DIR=/results \
+          -e TEST_FLAGS="$test_flags" ucs-detect-minimal
+
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: nightly-${{ matrix.terminal }}-${{ matrix.test_mode }}
+        path: docker-test/results/
+
+  gui-terminals-comprehensive:
+    runs-on: ubuntu-latest
+    needs: build-images
+    strategy:
+      fail-fast: false
+      matrix:
+        terminal: [xterm, konsole, gnome-terminal, lxterminal, qterminal, xfce4-terminal, mlterm, rxvt-unicode]
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Cache Docker images
+      uses: actions/cache@v3
+      with:
+        path: /tmp/docker-images
+        key: ${{ needs.build-images.outputs.cache-key }}
+
+    - name: Load images
+      run: |
+        docker load < /tmp/docker-images/enhanced.tar.gz
+
+    - name: Test ${{ matrix.terminal }}
+      run: |
+        mkdir -p docker-test/results
+        test_flags="--quick"
+        if [ "${{ github.event.inputs.full_test_mode }}" = "true" ]; then
+          test_flags="--limit-codepoints=10000"
+        fi
+
+        docker run --rm -v "$(pwd)/docker-test/results:/results" \
+          -e TERMINAL=${{ matrix.terminal }} -e OUTPUT_DIR=/results \
+          -e TEST_FLAGS="$test_flags" -e DISPLAY=:99 ucs-detect-enhanced
+      timeout-minutes: 10
+      continue-on-error: true
+
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: nightly-${{ matrix.terminal }}
+        path: docker-test/results/
+        if-no-files-found: ignore
+
+  experimental-terminals:
+    runs-on: ubuntu-latest
+    needs: build-images
+    if: github.event.inputs.include_experimental != 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        terminal: [kitty, alacritty, wezterm]
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Cache Docker images
+      uses: actions/cache@v3
+      with:
+        path: /tmp/docker-images
+        key: ${{ needs.build-images.outputs.cache-key }}
+
+    - name: Load images
+      run: |
+        docker load < /tmp/docker-images/enhanced.tar.gz
+
+    - name: Test ${{ matrix.terminal }} (experimental)
+      run: |
+        mkdir -p docker-test/results
+        docker run --rm -v "$(pwd)/docker-test/results:/results" \
+          -e TERMINAL=${{ matrix.terminal }} -e OUTPUT_DIR=/results \
+          -e TEST_FLAGS="--quick" -e DISPLAY=:99 ucs-detect-enhanced
+      timeout-minutes: 10
+      continue-on-error: true
+
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: nightly-experimental-${{ matrix.terminal }}
+        path: docker-test/results/
+        if-no-files-found: ignore
+
+  aggregate-and-report:
+    runs-on: ubuntu-latest
+    needs: [core-terminals-comprehensive, gui-terminals-comprehensive, experimental-terminals]
+    if: always()
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyyaml
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Consolidate results
+      run: |
+        mkdir -p docker-test/results
+        find artifacts -name "*.yaml" -exec cp {} docker-test/results/ \;
+        ls -la docker-test/results/
+
+    - name: Generate comprehensive report
+      run: |
+        cd docker-test && python aggregate_results.py
+        echo "=== Nightly Comprehensive Report ==="
+        if [ -f terminal_report.md ]; then
+          cat terminal_report.md
+        else
+          echo "No markdown report generated"
+        fi
+
+    - name: Create historical data
+      run: |
+        mkdir -p historical-data
+        timestamp=$(date +%Y%m%d-%H%M%S)
+        cp docker-test/aggregate_report.json historical-data/nightly-$timestamp.json
+        # Keep last 30 days of nightly reports
+        find historical-data -name "nightly-*.json" -mtime +30 -delete || true
+
+    - name: Upload comprehensive results
+      uses: actions/upload-artifact@v4
+      with:
+        name: nightly-comprehensive-report
+        path: |
+          docker-test/results/
+          docker-test/aggregate_report.json
+          docker-test/terminal_report.md
+          historical-data/
+        retention-days: 90
+
+    - name: Create issue on failures
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const title = `Nightly Terminal Testing Failed - ${new Date().toISOString().split('T')[0]}`;
+          const body = `
+          The nightly comprehensive terminal testing workflow has failed.
+
+          **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          **Date**: ${new Date().toISOString()}
+
+          Please check the workflow logs and terminal test results.
+          `;
+
+          // Check if similar issue already exists
+          const issues = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            state: 'open',
+            labels: ['nightly-testing', 'automated']
+          });
+
+          if (issues.data.length === 0) {
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['nightly-testing', 'automated', 'bug']
+            });
+          }
