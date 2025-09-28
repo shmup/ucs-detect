@@ -34,6 +34,75 @@ To run a detailed test and store a yaml report to disk::
 
    $ ucs-detect --save-yaml=data/my-terminal.yaml --limit-codepoints=5000 --limit-words=5000 --limit-errors=500
 
+Automated Terminal Testing
+---------------------------
+
+This repository includes comprehensive Docker-based infrastructure for automatically testing multiple terminal emulators and generating comparative reports.
+
+Building Test Images
+~~~~~~~~~~~~~~~~~~~~
+
+::
+
+   # Build minimal image (tmux, screen only)
+   $ docker build -f docker-test/Dockerfile.minimal -t ucs-detect-minimal .
+
+   # Build enhanced image (all major terminals)
+   $ docker build -f docker-test/Dockerfile.enhanced -t ucs-detect-enhanced .
+
+Running Tests
+~~~~~~~~~~~~~
+
+========================================  ================================================================
+Command                                   Description
+========================================  ================================================================
+``docker run --rm -v "$(pwd)/docker-test/results:/results" -e TERMINAL=tmux -e OUTPUT_DIR=/results ucs-detect-minimal``  Test tmux terminal
+``docker run --rm -v "$(pwd)/docker-test/results:/results" -e TERMINAL=screen -e OUTPUT_DIR=/results ucs-detect-minimal``  Test screen terminal
+``docker run --rm -v "$(pwd)/docker-test/results:/results" -e TERMINAL=xterm -e OUTPUT_DIR=/results ucs-detect-enhanced``  Test xterm terminal
+``docker run --rm -v "$(pwd)/docker-test/results:/results" -e TERMINAL=konsole -e OUTPUT_DIR=/results ucs-detect-enhanced``  Test konsole terminal
+``docker run --rm -v "$(pwd)/docker-test/results:/results" -e TERMINAL=gnome-terminal -e OUTPUT_DIR=/results ucs-detect-enhanced``  Test GNOME Terminal
+``docker run --rm -v "$(pwd)/docker-test/results:/results" -e TERMINAL=xfce4-terminal -e OUTPUT_DIR=/results ucs-detect-enhanced``  Test XFCE4 Terminal
+``docker run --rm -v "$(pwd)/docker-test/results:/results" -e TERMINAL=lxterminal -e OUTPUT_DIR=/results ucs-detect-enhanced``  Test LXTerminal
+``docker run --rm -v "$(pwd)/docker-test/results:/results" -e TERMINAL=qterminal -e OUTPUT_DIR=/results ucs-detect-enhanced``  Test QTerminal
+``docker run --rm -v "$(pwd)/docker-test/results:/results" -e TERMINAL=rxvt-unicode -e OUTPUT_DIR=/results ucs-detect-enhanced``  Test rxvt-unicode
+``docker run --rm -v "$(pwd)/docker-test/results:/results" -e TERMINAL=mlterm -e OUTPUT_DIR=/results ucs-detect-enhanced``  Test mlterm
+``./run_terminal_tests.sh --method docker --terminals tmux,screen,xterm,konsole``  Run multiple terminals with orchestration script
+========================================  ================================================================
+
+Docker Compose Testing
+~~~~~~~~~~~~~~~~~~~~~~~
+
+::
+
+   # Test individual terminals
+   $ docker-compose -f docker-test/docker-compose.test.yml up test-tmux
+   $ docker-compose -f docker-test/docker-compose.test.yml up test-konsole
+
+   # Test all terminals sequentially
+   $ docker-compose -f docker-test/docker-compose.test.yml up test-all
+
+   # Generate aggregated report
+   $ docker-compose -f docker-test/docker-compose.test.yml up aggregate-results
+
+Report Generation
+~~~~~~~~~~~~~~~~~
+
+::
+
+   # Generate comparative report from test results
+   $ python3 docker-test/aggregate_results.py --results-dir docker-test/results --output reports/aggregate_report.json --markdown reports/terminal_report.md
+
+   # View generated markdown report
+   $ cat reports/terminal_report.md
+
+The automated testing system generates letter grades (A+ through F) for each terminal across multiple Unicode support categories:
+
+- **FINAL**: Overall Unicode support score
+- **WIDE**: Wide character support
+- **LANG**: Language rendering support
+- **ZWJ**: Zero Width Joiner emoji sequences
+- **VS16**: Variation Selector-16 emoji sequences
+
 Test Results
 ------------
 
