@@ -1,0 +1,31 @@
+# minimal image for terminal testing (no GUI)
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# install base dependencies
+RUN apt-get update && apt-get install -y \
+    python3 python3-pip \
+    tmux screen \
+    locales \
+    && rm -rf /var/lib/apt/lists/*
+
+# set locale properly
+RUN locale-gen en_US.UTF-8
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+
+# create working directory
+WORKDIR /app
+
+# install ucs-detect (this will be rebuilt when source changes)
+COPY . /app
+RUN pip3 install -e .
+
+# test script
+COPY docker-test/run_terminal_test.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/run_terminal_test.sh
+
+# default command
+CMD ["/usr/local/bin/run_terminal_test.sh"]

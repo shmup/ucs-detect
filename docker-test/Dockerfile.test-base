@@ -1,0 +1,58 @@
+# base image for terminal testing
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# install base dependencies
+RUN apt-get update && apt-get install -y \
+    python3 python3-pip \
+    xvfb x11vnc \
+    wget curl git \
+    software-properties-common \
+    locales \
+    && rm -rf /var/lib/apt/lists/*
+
+# set locale
+RUN locale-gen en_US.UTF-8
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+
+# install common terminals available in ubuntu repos
+RUN apt-get update && apt-get install -y \
+    xterm \
+    rxvt-unicode \
+    gnome-terminal \
+    konsole \
+    lxterminal \
+    mate-terminal \
+    xfce4-terminal \
+    terminology \
+    tmux \
+    screen \
+    && rm -rf /var/lib/apt/lists/*
+
+# install terminals that need special repos
+# kitty
+RUN curl -L https://sw.kovidgoyal.net/kitty/installer.sh | sh /dev/stdin \
+    && ln -s ~/.local/kitty.app/bin/kitty /usr/local/bin/ || true
+
+# alacritty (if available via snap or cargo)
+RUN apt-get update && apt-get install -y cargo \
+    && cargo install alacritty || true
+
+# create working directory
+WORKDIR /app
+
+# copy ucs-detect source
+COPY . /app
+
+# install ucs-detect
+RUN pip3 install -e .
+
+# test script
+COPY docker-test/run_terminal_test.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/run_terminal_test.sh
+
+# default command
+CMD ["/usr/local/bin/run_terminal_test.sh"]
