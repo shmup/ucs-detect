@@ -2,12 +2,13 @@ name: Terminal Testing
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, automation ]
     paths:
       - 'docker-test/**'
       - 'ucs_detect/**'
       - 'run_terminal_tests.sh'
       - 'test_terminals.py'
+      - '.github/workflows/terminal-testing.yml'
   pull_request:
     branches: [ main, master ]
     paths:
@@ -15,6 +16,7 @@ on:
       - 'ucs_detect/**'
       - 'run_terminal_tests.sh'
       - 'test_terminals.py'
+      - '.github/workflows/terminal-testing.yml'
   workflow_dispatch:
     inputs:
       terminals:
@@ -51,15 +53,21 @@ jobs:
 
     - name: Verify results
       run: |
-        test -f docker-test/results/${{ matrix.terminal }}_results.yaml
-        echo "Results for ${{ matrix.terminal }}:"
-        head -20 docker-test/results/${{ matrix.terminal }}_results.yaml
+        ls -la docker-test/results/
+        # Check for any results file matching the terminal name pattern
+        if ls docker-test/results/${{ matrix.terminal }}_*.yaml 1> /dev/null 2>&1; then
+          echo "✅ Results file found for ${{ matrix.terminal }}:"
+          head -20 docker-test/results/${{ matrix.terminal }}_*.yaml
+        else
+          echo "❌ No results file found for ${{ matrix.terminal }}"
+          exit 1
+        fi
 
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.terminal }}-results
-        path: docker-test/results/${{ matrix.terminal }}_results.yaml
+        path: docker-test/results/${{ matrix.terminal }}_*.yaml
 
   gui-terminals:
     runs-on: ubuntu-latest
