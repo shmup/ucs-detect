@@ -57,15 +57,29 @@ jobs:
         mkdir -p docker-test/results
         docker run --rm -v "$(pwd)/docker-test/results:/results" \
           -e TERMINAL=tmux -e OUTPUT_DIR=/results ucs-detect-minimal
-        test -f docker-test/results/tmux_results.yaml
-        head -10 docker-test/results/tmux_results.yaml
+        # Check for timestamped result file
+        ls -la docker-test/results/
+        if ls docker-test/results/tmux_*.yaml 1> /dev/null 2>&1; then
+          echo "✅ tmux test results found"
+          head -10 docker-test/results/tmux_*.yaml
+        else
+          echo "❌ No tmux results file found"
+          exit 1
+        fi
 
     - name: Test screen (no display required)
       run: |
         docker run --rm -v "$(pwd)/docker-test/results:/results" \
           -e TERMINAL=screen -e OUTPUT_DIR=/results ucs-detect-minimal
-        test -f docker-test/results/screen_results.yaml
-        head -10 docker-test/results/screen_results.yaml
+        # Check for timestamped result file
+        ls -la docker-test/results/
+        if ls docker-test/results/screen_*.yaml 1> /dev/null 2>&1; then
+          echo "✅ screen test results found"
+          head -10 docker-test/results/screen_*.yaml
+        else
+          echo "❌ No screen results file found"
+          exit 1
+        fi
 
     - name: Aggregate results
       run: |

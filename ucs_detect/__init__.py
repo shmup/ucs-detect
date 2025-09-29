@@ -635,7 +635,7 @@ def run(stream, quick, limit_codepoints, limit_errors, limit_words, save_yaml, s
         term=term,
         writer=writer,
         results=emoji_vs16_results,
-        best_match=list(emoji_vs16_results.keys())[0],
+        best_match=list(emoji_vs16_results.keys())[0] if emoji_vs16_results else None,
     )
 
     if language_results:
