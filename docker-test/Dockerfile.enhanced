@@ -1,0 +1,72 @@
+# enhanced image for testing target terminals from results table
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# install base dependencies
+RUN apt-get update && apt-get install -y \
+    python3 python3-pip \
+    xvfb x11vnc \
+    wget curl git \
+    software-properties-common \
+    locales \
+    build-essential \
+    cargo \
+    && rm -rf /var/lib/apt/lists/*
+
+# set locale
+RUN locale-gen en_US.UTF-8
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+
+# install terminals available in ubuntu repos from target list
+RUN apt-get update && apt-get install -y \
+    konsole \
+    xfce4-terminal \
+    gnome-terminal \
+    lxterminal \
+    qterminal \
+    cool-retro-term \
+    mlterm \
+    xterm \
+    rxvt-unicode \
+    tmux \
+    screen \
+    && rm -rf /var/lib/apt/lists/*
+
+# install foot (modern terminal, may need snap or build from source)
+RUN apt-get update && apt-get install -y snapd || true
+# Note: foot may not be available in Ubuntu 22.04 repos
+
+# install kitty
+RUN curl -L https://sw.kovidgoyal.net/kitty/installer.sh | sh /dev/stdin \
+    && ln -s ~/.local/kitty.app/bin/kitty /usr/local/bin/ || true
+
+# install alacritty via cargo (takes time but gets latest version)
+RUN cargo install alacritty || true \
+    && ln -s ~/.cargo/bin/alacritty /usr/local/bin/ || true
+
+# install wezterm (need to add repo)
+RUN curl -fsSL https://apt.fury.io/wez/gpg.key | gpg --yes --dearmor -o /usr/share/keyrings/wezterm-fury.gpg \
+    && echo 'deb [signed-by=/usr/share/keyrings/wezterm-fury.gpg] https://apt.fury.io/wez/ * *' > /etc/apt/sources.list.d/wezterm.list \
+    && apt-get update && apt-get install -y wezterm || true
+
+# install st (simple terminal)
+RUN apt-get update && apt-get install -y stterm || true
+
+# create working directory
+WORKDIR /app
+
+# copy ucs-detect source
+COPY . /app
+
+# install ucs-detect
+RUN pip3 install -e .
+
+# test script
+COPY docker-test/run_terminal_test.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/run_terminal_test.sh
+
+# default command
+CMD ["/usr/local/bin/run_terminal_test.sh"]

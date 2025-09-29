@@ -130,3 +130,9 @@ dmypy.json
 
 .DS_Store
 *.bak
+
+# Generated reports and test results
+aggregate_report.json
+terminal_report.md
+docker-test/results/
+reports/

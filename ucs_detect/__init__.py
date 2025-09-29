@@ -484,7 +484,7 @@ def init_term(stream, quick):
     return term, writer
 
 
-def run(stream, quick, limit_codepoints, limit_errors, limit_words, save_yaml, shell, unicode_version):
+def run(stream, quick, limit_codepoints, limit_errors, limit_words, save_yaml, shell, unicode_version, software, version):
     """Program entry point."""
     term, writer = init_term(stream, quick)
 
@@ -498,8 +498,16 @@ def run(stream, quick, limit_codepoints, limit_errors, limit_words, save_yaml, s
         writer(f"ucs-detect: {display_args(session_arguments)})")
 
     if save_yaml:
-        terminal_software = input('\nEnter "Terminal Software": ')
-        terminal_version = input('Enter "Software Version": ')
+        # use CLI arguments if provided, otherwise prompt interactively
+        if software is not None:
+            terminal_software = software
+        else:
+            terminal_software = input('\nEnter "Terminal Software": ')
+
+        if version is not None:
+            terminal_version = version
+        else:
+            terminal_version = input('Enter "Software Version": ')
 
     stime = time.monotonic()
     try:
@@ -627,7 +635,7 @@ def run(stream, quick, limit_codepoints, limit_errors, limit_words, save_yaml, s
         term=term,
         writer=writer,
         results=emoji_vs16_results,
-        best_match=list(emoji_vs16_results.keys())[0],
+        best_match=list(emoji_vs16_results.keys())[0] if emoji_vs16_results else None,
     )
 
     if language_results:
@@ -756,6 +764,16 @@ def parse_args():
         "--unicode-version",
         help=("Override unicode version for language testing, otherwise best match by wide character "
               "testing is used")
+    )
+    args.add_argument(
+        "--software",
+        help="Terminal software name (used with --save-yaml, skips interactive prompt)",
+        default=None,
+    )
+    args.add_argument(
+        "--version",
+        help="Terminal software version (used with --save-yaml, skips interactive prompt)",
+        default=None,
     )
     results = vars(args.parse_args())
     if results["quick"]:

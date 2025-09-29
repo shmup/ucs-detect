@@ -1,0 +1,81 @@
+# docker compose for terminal testing
+version: '3.8'
+
+services:
+  # base test service (can be extended)
+  test-base:
+    build:
+      context: ..
+      dockerfile: docker-test/Dockerfile.test-base
+    volumes:
+      - ./results:/results
+      - ..:/app
+    environment:
+      - OUTPUT_DIR=/results
+    working_dir: /app
+
+  # test individual terminals
+  test-xterm:
+    extends: test-base
+    environment:
+      - TERMINAL=xterm
+      - OUTPUT_DIR=/results
+    command: /usr/local/bin/run_terminal_test.sh
+
+  test-rxvt:
+    extends: test-base
+    environment:
+      - TERMINAL=rxvt-unicode
+      - OUTPUT_DIR=/results
+    command: /usr/local/bin/run_terminal_test.sh
+
+  test-konsole:
+    extends: test-base
+    environment:
+      - TERMINAL=konsole
+      - OUTPUT_DIR=/results
+    command: /usr/local/bin/run_terminal_test.sh
+
+  test-gnome-terminal:
+    extends: test-base
+    environment:
+      - TERMINAL=gnome-terminal
+      - OUTPUT_DIR=/results
+    command: /usr/local/bin/run_terminal_test.sh
+
+  test-tmux:
+    extends: test-base
+    environment:
+      - TERMINAL=tmux
+      - OUTPUT_DIR=/results
+    command: /usr/local/bin/run_terminal_test.sh
+
+  test-screen:
+    extends: test-base
+    environment:
+      - TERMINAL=screen
+      - OUTPUT_DIR=/results
+    command: /usr/local/bin/run_terminal_test.sh
+
+  # run all tests sequentially
+  test-all:
+    extends: test-base
+    command: |
+      bash -c '
+      for terminal in xterm rxvt-unicode konsole tmux screen; do
+        echo "Testing $$terminal..."
+        TERMINAL=$$terminal /usr/local/bin/run_terminal_test.sh || true
+        sleep 2
+      done
+      '
+
+  # aggregate results
+  aggregate-results:
+    extends: test-base
+    volumes:
+      - ./results:/results
+      - ../reports:/app/reports
+      - ..:/app
+    command: python3 /app/docker-test/aggregate_results.py --results-dir /results --output /app/reports/aggregate_report.json --markdown /app/reports/terminal_report.md
+    depends_on:
+      - test-all

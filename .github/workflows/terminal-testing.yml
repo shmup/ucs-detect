@@ -1,0 +1,151 @@
+name: Terminal Testing
+
+on:
+  push:
+    branches: [ main, master, automation ]
+    paths:
+      - 'docker-test/**'
+      - 'ucs_detect/**'
+      - 'run_terminal_tests.sh'
+      - 'test_terminals.py'
+      - '.github/workflows/terminal-testing.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'docker-test/**'
+      - 'ucs_detect/**'
+      - 'run_terminal_tests.sh'
+      - 'test_terminals.py'
+      - '.github/workflows/terminal-testing.yml'
+  workflow_dispatch:
+    inputs:
+      terminals:
+        description: 'Comma-separated list of terminals to test'
+        required: false
+        default: 'tmux,screen,xterm,konsole'
+      test_method:
+        description: 'Testing method'
+        required: false
+        default: 'docker'
+        type: choice
+        options:
+        - docker
+        - native
+
+jobs:
+  core-terminals:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        terminal: [tmux, screen]
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build minimal Docker image
+      run: |
+        docker build -f docker-test/Dockerfile.minimal -t ucs-detect-minimal .
+
+    - name: Test ${{ matrix.terminal }}
+      run: |
+        mkdir -p docker-test/results
+        docker run --rm -v "$(pwd)/docker-test/results:/results" \
+          -e TERMINAL=${{ matrix.terminal }} -e OUTPUT_DIR=/results ucs-detect-minimal
+
+    - name: Verify results
+      run: |
+        ls -la docker-test/results/
+        # Check for any results file matching the terminal name pattern
+        if ls docker-test/results/${{ matrix.terminal }}_*.yaml 1> /dev/null 2>&1; then
+          echo "✅ Results file found for ${{ matrix.terminal }}:"
+          head -20 docker-test/results/${{ matrix.terminal }}_*.yaml
+        else
+          echo "❌ No results file found for ${{ matrix.terminal }}"
+          exit 1
+        fi
+
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.terminal }}-results
+        path: docker-test/results/${{ matrix.terminal }}_*.yaml
+
+  gui-terminals:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        terminal: [xterm, konsole, gnome-terminal, lxterminal]
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build enhanced Docker image
+      run: |
+        docker build -f docker-test/Dockerfile.enhanced -t ucs-detect-enhanced .
+      timeout-minutes: 20
+
+    - name: Test ${{ matrix.terminal }} with Xvfb
+      run: |
+        mkdir -p docker-test/results
+        docker run --rm -v "$(pwd)/docker-test/results:/results" \
+          -e TERMINAL=${{ matrix.terminal }} -e OUTPUT_DIR=/results \
+          -e DISPLAY=:99 ucs-detect-enhanced
+      timeout-minutes: 5
+      continue-on-error: true  # Some terminals might fail initially
+
+    - name: Check results
+      run: |
+        if [ -f docker-test/results/${{ matrix.terminal }}_results.yaml ]; then
+          echo "✅ ${{ matrix.terminal }} test succeeded"
+          head -10 docker-test/results/${{ matrix.terminal }}_results.yaml
+        else
+          echo "❌ ${{ matrix.terminal }} test failed - no results file"
+          ls -la docker-test/results/
+        fi
+
+    - name: Upload results (if exists)
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ${{ matrix.terminal }}-results
+        path: docker-test/results/
+        if-no-files-found: ignore
+
+  orchestrated-test:
+    runs-on: ubuntu-latest
+    needs: [core-terminals]
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+
+    - name: Run orchestrated terminal tests
+      run: |
+        terminals="${{ github.event.inputs.terminals || 'tmux,screen,xterm' }}"
+        method="${{ github.event.inputs.test_method || 'docker' }}"
+        ./run_terminal_tests.sh --method $method --terminals "$terminals"
+      timeout-minutes: 15
+
+    - name: Generate aggregate report
+      run: |
+        cd docker-test && python aggregate_results.py
+        echo "=== Aggregate Report ==="
+        cat terminal_report.md || echo "No markdown report generated"
+
+    - name: Upload comprehensive results
+      uses: actions/upload-artifact@v4
+      with:
+        name: orchestrated-test-results
+        path: |
+          docker-test/results/
+          docker-test/aggregate_report.json
+          docker-test/terminal_report.md
+        retention-days: 30
